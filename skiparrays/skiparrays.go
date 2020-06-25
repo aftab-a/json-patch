@@ -37,8 +37,6 @@ func New(rowlen int, values ...interface{}) *SkipArray {
 	} else {
 		a.rowLen = rowLen
 	}
-	//fmt.Println("New", len(values))
-	//fmt.Printf("New %T\n", values)
 	numRows := (len(values) / a.rowLen) + 1
 	a.rows = make([]*row, numRows)
 	s := 0
@@ -86,7 +84,6 @@ func (a *SkipArray) Insert(pos int, value interface{}) {
 		return
 	}
 	idx := a.findRow(pos)
-	//fmt.Printf("%v\n", value)
 	a.rows[idx].elements.Insert(pos-a.rows[idx].pos, value)
 	a.updateIndexes(idx, 1)
 }
@@ -96,7 +93,6 @@ func (a *SkipArray) Set(pos int, value interface{}) {
 		return
 	}
 	idx := a.findRow(pos)
-	//fmt.Printf("%v\n", value)
 	a.rows[idx].elements.Set(pos-a.rows[idx].pos, value)
 }
 
@@ -105,7 +101,6 @@ func (a *SkipArray) Get(pos int) (interface{}, bool) {
 		return nil, false
 	}
 	idx := a.findRow(pos)
-	//fmt.Printf("%v\n", idx)
 	return a.rows[idx].elements.Get(pos - a.rows[idx].pos)
 }
 
