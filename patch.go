@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/emirpasic/gods/lists/arraylist"
+	"github.com/evanphx/json-patch/skiparrays"
 	"github.com/pkg/errors"
 )
 
@@ -38,10 +38,11 @@ var (
 )
 
 type lazyNode struct {
-	raw json.RawMessage
+	raw *json.RawMessage
 	doc partialDoc
 	//ary   partialArray
-	list  *arraylist.List
+	//list  *arraylist.List
+	skarr *skiparrays.SkipArray
 	which int
 }
 
@@ -65,7 +66,7 @@ type container interface {
 }
 
 func newLazyNode(raw *json.RawMessage) *lazyNode {
-	return &lazyNode{raw: *raw, doc: nil, which: eRaw}
+	return &lazyNode{raw: raw, doc: nil, which: eRaw}
 }
 
 func (n *lazyNode) MarshalJSON() ([]byte, error) {
@@ -75,7 +76,7 @@ func (n *lazyNode) MarshalJSON() ([]byte, error) {
 	case eDoc:
 		return json.Marshal(n.doc)
 	case eAry:
-		arr := n.list.Values()
+		arr := n.skarr.Values()
 		return json.Marshal(arr)
 	default:
 		return nil, ErrUnknownType
@@ -83,11 +84,33 @@ func (n *lazyNode) MarshalJSON() ([]byte, error) {
 }
 
 func (n *lazyNode) UnmarshalJSON(data []byte) error {
-	//dest := make(json.RawMessage, len(data))
-	//copy(dest, data)
-	//n.raw = &dest
-	n.raw = data
+	dest := make(json.RawMessage, len(data))
+	copy(dest, data)
+	n.raw = &dest
+	//n.raw = data
 	n.which = eRaw
+	return nil
+}
+
+func (p *partialArray) MarshalJSON() ([]byte, error) {
+	arr := p.skarr.Values()
+	return json.Marshal(arr)
+}
+
+func (p *partialArray) UnmarshalJSON(data []byte) error {
+	var ary []*lazyNode
+	err := json.Unmarshal(data, &ary)
+
+	if err != nil {
+		return err
+	}
+
+	ifarr := make([]interface{}, len(ary))
+	for i := range ary {
+		ifarr[i] = ary[i]
+	}
+	p.skarr = skiparrays.New(1024, ifarr...)
+	p.which = eAry
 	return nil
 }
 
@@ -114,7 +137,7 @@ func (n *lazyNode) intoDoc() (*partialDoc, error) {
 		return nil, ErrInvalid
 	}
 
-	err := json.Unmarshal(n.raw, &n.doc)
+	err := json.Unmarshal(*n.raw, &n.doc)
 
 	if err != nil {
 		return nil, err
@@ -135,16 +158,17 @@ func (n *lazyNode) intoAry() (*partialArray, error) {
 	}
 
 	var ary []*lazyNode
-	err := json.Unmarshal(n.raw, &ary)
+	err := json.Unmarshal(*n.raw, &ary)
 
 	if err != nil {
 		return nil, err
 	}
 
-	n.list = arraylist.New()
+	ifarr := make([]interface{}, len(ary))
 	for i := range ary {
-		n.list.Add(ary[i])
+		ifarr[i] = ary[i]
 	}
+	n.skarr = skiparrays.New(1024, ifarr...)
 
 	n.which = eAry
 	p := partialArray(*n)
@@ -158,10 +182,10 @@ func (n *lazyNode) compact() []byte {
 		return nil
 	}
 
-	err := json.Compact(buf, n.raw)
+	err := json.Compact(buf, *n.raw)
 
 	if err != nil {
-		return n.raw
+		return *n.raw
 	}
 
 	return buf.Bytes()
@@ -172,7 +196,7 @@ func (n *lazyNode) tryDoc() bool {
 		return false
 	}
 
-	err := json.Unmarshal(n.raw, &n.doc)
+	err := json.Unmarshal(*n.raw, &n.doc)
 
 	if err != nil {
 		return false
@@ -188,7 +212,7 @@ func (n *lazyNode) tryAry() bool {
 	}
 
 	var ary []*lazyNode
-	err := json.Unmarshal(n.raw, ary)
+	err := json.Unmarshal(*n.raw, ary)
 
 	if err != nil {
 		return false
@@ -243,16 +267,16 @@ func (n *lazyNode) equal(o *lazyNode) bool {
 		return false
 	}
 
-	if n.list.Size() != o.list.Size() {
+	if n.skarr.Size() != o.skarr.Size() {
 		return false
 	}
 
-	itr := n.list.Iterator()
+	itr := n.skarr.Iterator()
 	for itr.Next() {
 		idx := itr.Index()
 		val := itr.Value().(*lazyNode)
 
-		oval, _ := o.list.Get(idx)
+		oval, _ := o.skarr.Get(idx)
 		if !val.equal(oval.(*lazyNode)) {
 			return false
 		}
@@ -378,7 +402,7 @@ func findObject(pd *container, path string) (container, string) {
 			return nil, ""
 		}
 
-		if isArray(next.raw) {
+		if isArray(*next.raw) {
 			doc, err = next.intoAry()
 
 			if err != nil {
@@ -420,6 +444,12 @@ func (d *partialDoc) remove(key string) error {
 	return nil
 }
 
+func newPartialArray() *partialArray {
+	parr := &partialArray{}
+	parr.skarr = skiparrays.New(0)
+	return parr
+}
+
 // set should only be used to implement the "replace" operation, so "key" must
 // be an already existing index in "d".
 func (d partialArray) set(key string, val *lazyNode) error {
@@ -427,14 +457,14 @@ func (d partialArray) set(key string, val *lazyNode) error {
 	if err != nil {
 		return err
 	}
-	d.list.Set(idx, val)
+	d.skarr.Set(idx, val)
 	//(*d)[idx] = *val
 	return nil
 }
 
 func (d partialArray) add(key string, val *lazyNode) error {
 	if key == "-" {
-		d.list.Add(val)
+		d.skarr.Add(val)
 		return nil
 	}
 
@@ -443,34 +473,22 @@ func (d partialArray) add(key string, val *lazyNode) error {
 		return errors.Wrapf(err, "value was not a proper array index: '%s'", key)
 	}
 
-	d.list.Insert(idx, val)
-
-	//sz := len(*d) + 1
-
-	//ary := make([]*lazyNode, sz)
-	/*ary := make([]lazyNode, sz)
-
-	cur := *d
-
-	if idx >= len(ary) {
+	if idx > d.skarr.Size() {
 		return errors.Wrapf(ErrInvalidIndex, "Unable to access invalid index: %d", idx)
 	}
 
+	sz := d.skarr.Size() + 1
 	if SupportNegativeIndices {
-		if idx < -len(ary) {
+		if idx < -sz {
 			return errors.Wrapf(ErrInvalidIndex, "Unable to access invalid index: %d", idx)
 		}
 
 		if idx < 0 {
-			idx += len(ary)
+			idx += sz
 		}
 	}
 
-	copy(ary[0:idx], cur[0:idx])
-	ary[idx] = *val
-	copy(ary[idx+1:], cur[idx:])
-
-	*d = ary*/
+	d.skarr.Insert(idx, val)
 	return nil
 }
 
@@ -481,11 +499,11 @@ func (d *partialArray) get(key string) (*lazyNode, error) {
 		return nil, err
 	}
 
-	if idx >= d.list.Size() {
+	if idx >= d.skarr.Size() {
 		return nil, errors.Wrapf(ErrInvalidIndex, "Unable to access invalid index: %d", idx)
 	}
 
-	val, _ := d.list.Get(idx)
+	val, _ := d.skarr.Get(idx)
 	return val.(*lazyNode), nil
 }
 
@@ -495,30 +513,21 @@ func (d *partialArray) remove(key string) error {
 		return err
 	}
 
-	//cur := *d
-
-	if idx >= d.list.Size() {
+	if idx >= d.skarr.Size() {
 		return errors.Wrapf(ErrInvalidIndex, "Unable to access invalid index: %d", idx)
 	}
 
-	/*if SupportNegativeIndices {
-		if idx < -len(cur) {
+	if SupportNegativeIndices {
+		if idx < -d.skarr.Size() {
 			return errors.Wrapf(ErrInvalidIndex, "Unable to access invalid index: %d", idx)
 		}
 
 		if idx < 0 {
-			idx += len(cur)
+			idx += d.skarr.Size()
 		}
 	}
 
-	//ary := make([]*lazyNode, len(cur)-1)
-	ary := make([]lazyNode, len(cur)-1)
-
-	copy(ary[0:idx], cur[0:idx])
-	copy(ary[idx:], cur[idx+1:])
-
-	*d = ary*/
-	d.list.Remove(idx)
+	d.skarr.Remove(idx)
 	return nil
 
 }

@@ -59,25 +59,25 @@ var Cases = []Case{
 	{
 		`{ "foo": "bar"}`,
 		`[
-         { "op": "add", "path": "/baz", "value": "qux" }
-     ]`,
+	         { "op": "add", "path": "/baz", "value": "qux" }
+	     ]`,
 		`{
-       "baz": "qux",
-       "foo": "bar"
-     }`,
+	       "baz": "qux",
+	       "foo": "bar"
+	     }`,
 	},
 	{
 		`{ "foo": [ "bar", "baz" ] }`,
 		`[
-     { "op": "add", "path": "/foo/1", "value": "qux" }
-    ]`,
+		     { "op": "add", "path": "/foo/1", "value": "qux" }
+		    ]`,
 		`{ "foo": [ "bar", "qux", "baz" ] }`,
 	},
 	{
 		`{ "foo": [ "bar", "baz" ] }`,
 		`[
-     { "op": "add", "path": "/foo/-1", "value": "qux" }
-    ]`,
+				     { "op": "add", "path": "/foo/-1", "value": "qux" }
+				    ]`,
 		`{ "foo": [ "bar", "baz", "qux" ] }`,
 	},
 	{
@@ -97,24 +97,24 @@ var Cases = []Case{
 	},
 	{
 		`{
-     "foo": {
-       "bar": "baz",
-       "waldo": "fred"
-     },
-     "qux": {
-       "corge": "grault"
-     }
-   }`,
+			     "foo": {
+			       "bar": "baz",
+			       "waldo": "fred"
+			     },
+			     "qux": {
+			       "corge": "grault"
+			     }
+			   }`,
 		`[ { "op": "move", "from": "/foo/waldo", "path": "/qux/thud" } ]`,
 		`{
-     "foo": {
-       "bar": "baz"
-     },
-     "qux": {
-       "corge": "grault",
-       "thud": "fred"
-     }
-   }`,
+			     "foo": {
+			       "bar": "baz"
+			     },
+			     "qux": {
+			       "corge": "grault",
+			       "thud": "fred"
+			     }
+			   }`,
 	},
 	{
 		`{ "foo": [ "all", "grass", "cows", "eat" ] }`,
@@ -221,7 +221,7 @@ var Cases = []Case{
 		// The wrapping quotes around 'A's are included in the copy
 		// size, so each copy operation increases the size by 50 bytes.
 		`[ { "op": "copy", "path": "/foo/-", "from": "/foo/1" },
-		   { "op": "copy", "path": "/foo/-", "from": "/foo/1" }]`,
+				   { "op": "copy", "path": "/foo/-", "from": "/foo/1" }]`,
 		fmt.Sprintf(`{ "foo": ["A", %q, %q, %q] }`, repeatedA(48), repeatedA(48), repeatedA(48)),
 	},
 }
@@ -286,6 +286,7 @@ var BadCases = []BadCase{
 		`{ "foo": ["bar"]}`,
 		`[ {"op": "add", "path": "/foo/2", "value": "bum"}]`,
 	},
+
 	{
 		`{ "foo": []}`,
 		`[ {"op": "remove", "path": "/foo/-"}]`,
@@ -325,7 +326,7 @@ var BadCases = []BadCase{
 		// The wrapping quotes around 'A's are included in the copy
 		// size, so each copy operation increases the size by 51 bytes.
 		`[ { "op": "copy", "path": "/foo/-", "from": "/foo/1" },
-		   { "op": "copy", "path": "/foo/-", "from": "/foo/1" }]`,
+				   { "op": "copy", "path": "/foo/-", "from": "/foo/1" }]`,
 	},
 	// Can't move into an index greater than or equal to the size of the array
 	{
@@ -389,13 +390,13 @@ type TestCase struct {
 var TestCases = []TestCase{
 	{
 		`{
-      "baz": "qux",
-      "foo": [ "a", 2, "c" ]
-    }`,
+	      "baz": "qux",
+	      "foo": [ "a", 2, "c" ]
+	    }`,
 		`[
-      { "op": "test", "path": "/baz", "value": "qux" },
-      { "op": "test", "path": "/foo/1", "value": 2 }
-    ]`,
+	      { "op": "test", "path": "/baz", "value": "qux" },
+	      { "op": "test", "path": "/foo/1", "value": 2 }
+	    ]`,
 		true,
 		"",
 	},
@@ -407,13 +408,13 @@ var TestCases = []TestCase{
 	},
 	{
 		`{
-      "baz": "qux",
-      "foo": ["a", 2, "c"]
-    }`,
+			      "baz": "qux",
+			      "foo": ["a", 2, "c"]
+			    }`,
 		`[
-      { "op": "test", "path": "/baz", "value": "qux" },
-      { "op": "test", "path": "/foo/1", "value": "c" }
-    ]`,
+			      { "op": "test", "path": "/baz", "value": "qux" },
+			      { "op": "test", "path": "/foo/1", "value": "c" }
+			    ]`,
 		false,
 		"/foo/1",
 	},
