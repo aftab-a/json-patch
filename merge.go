@@ -74,18 +74,20 @@ func pruneDocNulls(doc *partialDoc) *partialDoc {
 }
 
 func pruneAryNulls(ary *partialArray) *partialArray {
-	newAry := []*lazyNode{}
+	/*newAry := []lazyNode{}
 
-	for _, v := range *ary {
-		if v != nil {
-			pruneNulls(v)
+	itr := ary.list.Iterator()
+	for itr.Next() {
+		if len(v.ary) == 0 {
+			pruneNulls(&v)
 			newAry = append(newAry, v)
 		}
 	}
 
 	*ary = newAry
 
-	return ary
+	return ary*/
+	return nil
 }
 
 var errBadJSONDoc = fmt.Errorf("Invalid JSON Document")

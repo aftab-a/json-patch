@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/emirpasic/gods/lists/arraylist"
 	"github.com/pkg/errors"
 )
 
@@ -35,9 +38,10 @@ var (
 )
 
 type lazyNode struct {
-	raw   *json.RawMessage
-	doc   partialDoc
-	ary   partialArray
+	raw json.RawMessage
+	doc partialDoc
+	//ary   partialArray
+	list  *arraylist.List
 	which int
 }
 
@@ -48,7 +52,10 @@ type Operation map[string]*json.RawMessage
 type Patch []Operation
 
 type partialDoc map[string]*lazyNode
-type partialArray []*lazyNode
+
+//type partialArray []*lazyNode
+
+type partialArray lazyNode
 
 type container interface {
 	get(key string) (*lazyNode, error)
@@ -58,7 +65,7 @@ type container interface {
 }
 
 func newLazyNode(raw *json.RawMessage) *lazyNode {
-	return &lazyNode{raw: raw, doc: nil, ary: nil, which: eRaw}
+	return &lazyNode{raw: *raw, doc: nil, which: eRaw}
 }
 
 func (n *lazyNode) MarshalJSON() ([]byte, error) {
@@ -68,16 +75,18 @@ func (n *lazyNode) MarshalJSON() ([]byte, error) {
 	case eDoc:
 		return json.Marshal(n.doc)
 	case eAry:
-		return json.Marshal(n.ary)
+		arr := n.list.Values()
+		return json.Marshal(arr)
 	default:
 		return nil, ErrUnknownType
 	}
 }
 
 func (n *lazyNode) UnmarshalJSON(data []byte) error {
-	dest := make(json.RawMessage, len(data))
-	copy(dest, data)
-	n.raw = &dest
+	//dest := make(json.RawMessage, len(data))
+	//copy(dest, data)
+	//n.raw = &dest
+	n.raw = data
 	n.which = eRaw
 	return nil
 }
@@ -105,7 +114,7 @@ func (n *lazyNode) intoDoc() (*partialDoc, error) {
 		return nil, ErrInvalid
 	}
 
-	err := json.Unmarshal(*n.raw, &n.doc)
+	err := json.Unmarshal(n.raw, &n.doc)
 
 	if err != nil {
 		return nil, err
@@ -117,21 +126,29 @@ func (n *lazyNode) intoDoc() (*partialDoc, error) {
 
 func (n *lazyNode) intoAry() (*partialArray, error) {
 	if n.which == eAry {
-		return &n.ary, nil
+		p := partialArray(*n)
+		return &p, nil
 	}
 
 	if n.raw == nil {
 		return nil, ErrInvalid
 	}
 
-	err := json.Unmarshal(*n.raw, &n.ary)
+	var ary []*lazyNode
+	err := json.Unmarshal(n.raw, &ary)
 
 	if err != nil {
 		return nil, err
 	}
 
+	n.list = arraylist.New()
+	for i := range ary {
+		n.list.Add(ary[i])
+	}
+
 	n.which = eAry
-	return &n.ary, nil
+	p := partialArray(*n)
+	return &p, nil
 }
 
 func (n *lazyNode) compact() []byte {
@@ -141,10 +158,10 @@ func (n *lazyNode) compact() []byte {
 		return nil
 	}
 
-	err := json.Compact(buf, *n.raw)
+	err := json.Compact(buf, n.raw)
 
 	if err != nil {
-		return *n.raw
+		return n.raw
 	}
 
 	return buf.Bytes()
@@ -155,7 +172,7 @@ func (n *lazyNode) tryDoc() bool {
 		return false
 	}
 
-	err := json.Unmarshal(*n.raw, &n.doc)
+	err := json.Unmarshal(n.raw, &n.doc)
 
 	if err != nil {
 		return false
@@ -170,7 +187,8 @@ func (n *lazyNode) tryAry() bool {
 		return false
 	}
 
-	err := json.Unmarshal(*n.raw, &n.ary)
+	var ary []*lazyNode
+	err := json.Unmarshal(n.raw, ary)
 
 	if err != nil {
 		return false
@@ -225,12 +243,17 @@ func (n *lazyNode) equal(o *lazyNode) bool {
 		return false
 	}
 
-	if len(n.ary) != len(o.ary) {
+	if n.list.Size() != o.list.Size() {
 		return false
 	}
 
-	for idx, val := range n.ary {
-		if !val.equal(o.ary[idx]) {
+	itr := n.list.Iterator()
+	for itr.Next() {
+		idx := itr.Index()
+		val := itr.Value().(*lazyNode)
+
+		oval, _ := o.list.Get(idx)
+		if !val.equal(oval.(*lazyNode)) {
 			return false
 		}
 	}
@@ -355,7 +378,7 @@ func findObject(pd *container, path string) (container, string) {
 			return nil, ""
 		}
 
-		if isArray(*next.raw) {
+		if isArray(next.raw) {
 			doc, err = next.intoAry()
 
 			if err != nil {
@@ -399,18 +422,19 @@ func (d *partialDoc) remove(key string) error {
 
 // set should only be used to implement the "replace" operation, so "key" must
 // be an already existing index in "d".
-func (d *partialArray) set(key string, val *lazyNode) error {
+func (d partialArray) set(key string, val *lazyNode) error {
 	idx, err := strconv.Atoi(key)
 	if err != nil {
 		return err
 	}
-	(*d)[idx] = val
+	d.list.Set(idx, val)
+	//(*d)[idx] = *val
 	return nil
 }
 
-func (d *partialArray) add(key string, val *lazyNode) error {
+func (d partialArray) add(key string, val *lazyNode) error {
 	if key == "-" {
-		*d = append(*d, val)
+		d.list.Add(val)
 		return nil
 	}
 
@@ -419,9 +443,12 @@ func (d *partialArray) add(key string, val *lazyNode) error {
 		return errors.Wrapf(err, "value was not a proper array index: '%s'", key)
 	}
 
-	sz := len(*d) + 1
+	d.list.Insert(idx, val)
 
-	ary := make([]*lazyNode, sz)
+	//sz := len(*d) + 1
+
+	//ary := make([]*lazyNode, sz)
+	/*ary := make([]lazyNode, sz)
 
 	cur := *d
 
@@ -440,10 +467,10 @@ func (d *partialArray) add(key string, val *lazyNode) error {
 	}
 
 	copy(ary[0:idx], cur[0:idx])
-	ary[idx] = val
+	ary[idx] = *val
 	copy(ary[idx+1:], cur[idx:])
 
-	*d = ary
+	*d = ary*/
 	return nil
 }
 
@@ -454,11 +481,12 @@ func (d *partialArray) get(key string) (*lazyNode, error) {
 		return nil, err
 	}
 
-	if idx >= len(*d) {
+	if idx >= d.list.Size() {
 		return nil, errors.Wrapf(ErrInvalidIndex, "Unable to access invalid index: %d", idx)
 	}
 
-	return (*d)[idx], nil
+	val, _ := d.list.Get(idx)
+	return val.(*lazyNode), nil
 }
 
 func (d *partialArray) remove(key string) error {
@@ -467,13 +495,13 @@ func (d *partialArray) remove(key string) error {
 		return err
 	}
 
-	cur := *d
+	//cur := *d
 
-	if idx >= len(cur) {
+	if idx >= d.list.Size() {
 		return errors.Wrapf(ErrInvalidIndex, "Unable to access invalid index: %d", idx)
 	}
 
-	if SupportNegativeIndices {
+	/*if SupportNegativeIndices {
 		if idx < -len(cur) {
 			return errors.Wrapf(ErrInvalidIndex, "Unable to access invalid index: %d", idx)
 		}
@@ -483,12 +511,14 @@ func (d *partialArray) remove(key string) error {
 		}
 	}
 
-	ary := make([]*lazyNode, len(cur)-1)
+	//ary := make([]*lazyNode, len(cur)-1)
+	ary := make([]lazyNode, len(cur)-1)
 
 	copy(ary[0:idx], cur[0:idx])
 	copy(ary[idx:], cur[idx+1:])
 
-	*d = ary
+	*d = ary*/
+	d.list.Remove(idx)
 	return nil
 
 }
@@ -730,7 +760,8 @@ func (p Patch) ApplyIndent(doc []byte, indent string) ([]byte, error) {
 
 	var accumulatedCopySize int64
 
-	for _, op := range p {
+	start := time.Now()
+	for i, op := range p {
 		switch op.Kind() {
 		case "add":
 			err = p.add(&pd, op)
@@ -751,12 +782,18 @@ func (p Patch) ApplyIndent(doc []byte, indent string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		if i%1000 == 0 {
+			duration := time.Since(start)
+			log.Println("Done ops", i, duration.Seconds())
+		}
+		i++
 	}
 
 	if indent != "" {
 		return json.MarshalIndent(pd, "", indent)
 	}
 
+	log.Println("Going to marshal")
 	return json.Marshal(pd)
 }
 
