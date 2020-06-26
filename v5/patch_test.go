@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -61,25 +59,25 @@ var Cases = []Case{
 	{
 		`{ "foo": "bar"}`,
 		`[
-	         { "op": "add", "path": "/baz", "value": "qux" }
-	     ]`,
+         { "op": "add", "path": "/baz", "value": "qux" }
+     ]`,
 		`{
-	       "baz": "qux",
-	       "foo": "bar"
-	     }`,
+       "baz": "qux",
+       "foo": "bar"
+     }`,
 	},
 	{
 		`{ "foo": [ "bar", "baz" ] }`,
 		`[
-		     { "op": "add", "path": "/foo/1", "value": "qux" }
-		    ]`,
+     { "op": "add", "path": "/foo/1", "value": "qux" }
+    ]`,
 		`{ "foo": [ "bar", "qux", "baz" ] }`,
 	},
 	{
 		`{ "foo": [ "bar", "baz" ] }`,
 		`[
-				     { "op": "add", "path": "/foo/-1", "value": "qux" }
-				    ]`,
+     { "op": "add", "path": "/foo/-1", "value": "qux" }
+    ]`,
 		`{ "foo": [ "bar", "baz", "qux" ] }`,
 	},
 	{
@@ -99,24 +97,24 @@ var Cases = []Case{
 	},
 	{
 		`{
-			     "foo": {
-			       "bar": "baz",
-			       "waldo": "fred"
-			     },
-			     "qux": {
-			       "corge": "grault"
-			     }
-			   }`,
+     "foo": {
+       "bar": "baz",
+       "waldo": "fred"
+     },
+     "qux": {
+       "corge": "grault"
+     }
+   }`,
 		`[ { "op": "move", "from": "/foo/waldo", "path": "/qux/thud" } ]`,
 		`{
-			     "foo": {
-			       "bar": "baz"
-			     },
-			     "qux": {
-			       "corge": "grault",
-			       "thud": "fred"
-			     }
-			   }`,
+     "foo": {
+       "bar": "baz"
+     },
+     "qux": {
+       "corge": "grault",
+       "thud": "fred"
+     }
+   }`,
 	},
 	{
 		`{ "foo": [ "all", "grass", "cows", "eat" ] }`,
@@ -228,7 +226,7 @@ var Cases = []Case{
 		// The wrapping quotes around 'A's are included in the copy
 		// size, so each copy operation increases the size by 50 bytes.
 		`[ { "op": "copy", "path": "/foo/-", "from": "/foo/1" },
-				   { "op": "copy", "path": "/foo/-", "from": "/foo/1" }]`,
+		   { "op": "copy", "path": "/foo/-", "from": "/foo/1" }]`,
 		fmt.Sprintf(`{ "foo": ["A", %q, %q, %q] }`, repeatedA(48), repeatedA(48), repeatedA(48)),
 	},
 }
@@ -293,7 +291,6 @@ var BadCases = []BadCase{
 		`{ "foo": ["bar"]}`,
 		`[ {"op": "add", "path": "/foo/2", "value": "bum"}]`,
 	},
-
 	{
 		`{ "foo": []}`,
 		`[ {"op": "remove", "path": "/foo/-"}]`,
@@ -333,7 +330,7 @@ var BadCases = []BadCase{
 		// The wrapping quotes around 'A's are included in the copy
 		// size, so each copy operation increases the size by 51 bytes.
 		`[ { "op": "copy", "path": "/foo/-", "from": "/foo/1" },
-				   { "op": "copy", "path": "/foo/-", "from": "/foo/1" }]`,
+		   { "op": "copy", "path": "/foo/-", "from": "/foo/1" }]`,
 	},
 	// Can't move into an index greater than or equal to the size of the array
 	{
@@ -406,13 +403,13 @@ type TestCase struct {
 var TestCases = []TestCase{
 	{
 		`{
-	      "baz": "qux",
-	      "foo": [ "a", 2, "c" ]
-	    }`,
+      "baz": "qux",
+      "foo": [ "a", 2, "c" ]
+    }`,
 		`[
-	      { "op": "test", "path": "/baz", "value": "qux" },
-	      { "op": "test", "path": "/foo/1", "value": 2 }
-	    ]`,
+      { "op": "test", "path": "/baz", "value": "qux" },
+      { "op": "test", "path": "/foo/1", "value": 2 }
+    ]`,
 		true,
 		"",
 	},
@@ -424,13 +421,13 @@ var TestCases = []TestCase{
 	},
 	{
 		`{
-			      "baz": "qux",
-			      "foo": ["a", 2, "c"]
-			    }`,
+      "baz": "qux",
+      "foo": ["a", 2, "c"]
+    }`,
 		`[
-			      { "op": "test", "path": "/baz", "value": "qux" },
-			      { "op": "test", "path": "/foo/1", "value": "c" }
-			    ]`,
+      { "op": "test", "path": "/baz", "value": "qux" },
+      { "op": "test", "path": "/foo/1", "value": "c" }
+    ]`,
 		false,
 		"/foo/1",
 	},
@@ -512,7 +509,7 @@ func TestAdd(t *testing.T) {
 		name                   string
 		key                    string
 		val                    lazyNode
-		arr                    *partialArray
+		arr                    partialArray
 		rejectNegativeIndicies bool
 		err                    string
 	}{
@@ -520,42 +517,42 @@ func TestAdd(t *testing.T) {
 			name: "should work",
 			key:  "0",
 			val:  lazyNode{},
-			arr:  newPartialArray(),
+			arr:  partialArray{},
 		},
 		{
 			name: "index too large",
 			key:  "1",
 			val:  lazyNode{},
-			arr:  newPartialArray(),
+			arr:  partialArray{},
 			err:  "Unable to access invalid index: 1: invalid index referenced",
 		},
 		{
 			name: "negative should work",
 			key:  "-1",
 			val:  lazyNode{},
-			arr:  newPartialArray(),
+			arr:  partialArray{},
 		},
 		{
 			name: "negative too small",
 			key:  "-2",
 			val:  lazyNode{},
-			arr:  newPartialArray(),
+			arr:  partialArray{},
 			err:  "Unable to access invalid index: -2: invalid index referenced",
 		},
 		{
-			name:                   "negative but negative disabled",
-			key:                    "-1",
-			val:                    lazyNode{},
-			arr:                    newPartialArray(),
+			name: "negative but negative disabled",
+			key:  "-1",
+			val:  lazyNode{},
+			arr:  partialArray{},
 			rejectNegativeIndicies: true,
-			err:                    "Unable to access invalid index: -1: invalid index referenced",
+			err: "Unable to access invalid index: -1: invalid index referenced",
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			SupportNegativeIndices = !tc.rejectNegativeIndicies
 			key := tc.key
-			arr := tc.arr
+			arr := &tc.arr
 			val := &tc.val
 			err := arr.add(key, val)
 			if err == nil && tc.err != "" {
@@ -675,72 +672,5 @@ func TestEquality(t *testing.T) {
 				t.Errorf("Expected Equal(%s, %s) to return %t, but got %t", tc.b, tc.a, tc.equal, got)
 			}
 		})
-	}
-}
-
-func createRandomString(n int) string {
-	chars := "abcdefghijklmnopqrstuvwxzy"
-	byts := make([]byte, n)
-	for i := range byts {
-		byts[i] = chars[rand.Intn(len(chars))]
-	}
-	return string(byts)
-}
-
-func createRandomOps(n int, max int, op string) string {
-	ops := make([]string, n)
-	idx := 0
-	for i := range ops {
-		s := createRandomString(20)
-		idx = rand.Intn(max)
-		if op == "remove" {
-			max--
-		}
-		ops[i] = fmt.Sprintf(`{ "op": "%s", "path": "/strArr/%d", "value": "%s" }`, op, idx, s)
-	}
-	return "[ " + strings.Join(ops, ",") + " ] "
-}
-
-func BenchmarkPatchAddOp(b *testing.B) {
-	numStrs := 1000000
-	strArr := make([]string, numStrs)
-	for i := range strArr {
-		strArr[i] = createRandomString(20)
-	}
-	doc := make(map[string][]string)
-	doc["strArr"] = strArr
-	docBytes, err := json.Marshal(doc)
-	if err != nil {
-		b.FailNow()
-	}
-	ops := createRandomOps(100000, 1000000, "add")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err = applyPatch(string(docBytes), ops)
-		if err != nil {
-			b.FailNow()
-		}
-	}
-}
-
-func BenchmarkPatchRemoveOp(b *testing.B) {
-	numStrs := 1000000
-	strArr := make([]string, numStrs)
-	for i := range strArr {
-		strArr[i] = createRandomString(10)
-	}
-	doc := make(map[string][]string)
-	doc["strArr"] = strArr
-	docBytes, err := json.Marshal(doc)
-	if err != nil {
-		b.FailNow()
-	}
-	ops := createRandomOps(100000, 1000000, "remove")
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err = applyPatch(string(docBytes), ops)
-		if err != nil {
-			b.FailNow()
-		}
 	}
 }
