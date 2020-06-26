@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/evanphx/json-patch/skiparrays"
 	"github.com/pkg/errors"
@@ -769,8 +767,7 @@ func (p Patch) ApplyIndent(doc []byte, indent string) ([]byte, error) {
 
 	var accumulatedCopySize int64
 
-	start := time.Now()
-	for i, op := range p {
+	for _, op := range p {
 		switch op.Kind() {
 		case "add":
 			err = p.add(&pd, op)
@@ -791,18 +788,12 @@ func (p Patch) ApplyIndent(doc []byte, indent string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if i%1000 == 0 {
-			duration := time.Since(start)
-			log.Println("Done ops", i, duration.Seconds())
-		}
-		i++
 	}
 
 	if indent != "" {
 		return json.MarshalIndent(pd, "", indent)
 	}
 
-	log.Println("Going to marshal")
 	return json.Marshal(pd)
 }
 

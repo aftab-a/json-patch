@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -475,6 +477,73 @@ func TestAllTest(t *testing.T) {
 			if err.Error() != expected {
 				t.Errorf("Testing failed as expected but invalid message: expected [%s], got [%s]", expected, err)
 			}
+		}
+	}
+}
+
+func createRandomString(n int) string {
+	chars := "abcdefghijklmnopqrstuvwxzy"
+	byts := make([]byte, n)
+	for i := range byts {
+		byts[i] = chars[rand.Intn(len(chars))]
+	}
+	return string(byts)
+}
+
+func createRandomOps(n int, max int, op string) string {
+	ops := make([]string, n)
+	idx := 0
+	for i := range ops {
+		s := createRandomString(20)
+		idx = rand.Intn(max)
+		if op == "remove" {
+			max--
+		}
+		ops[i] = fmt.Sprintf(`{ "op": "%s", "path": "/strArr/%d", "value": "%s" }`, op, idx, s)
+	}
+	return "[ " + strings.Join(ops, ",") + " ] "
+}
+
+func BenchmarkPatchAddOp(b *testing.B) {
+	numStrs := 1000000
+	strArr := make([]string, numStrs)
+	for i := range strArr {
+		strArr[i] = createRandomString(20)
+	}
+	doc := make(map[string][]string)
+	doc["strArr"] = strArr
+	docBytes, err := json.Marshal(doc)
+	if err != nil {
+		b.FailNow()
+	}
+	ops := createRandomOps(100000, 1000000, "add")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err = applyPatch(string(docBytes), ops)
+		if err != nil {
+			b.FailNow()
+		}
+	}
+}
+
+func BenchmarkPatchRemoveOp(b *testing.B) {
+	numStrs := 1000000
+	strArr := make([]string, numStrs)
+	for i := range strArr {
+		strArr[i] = createRandomString(10)
+	}
+	doc := make(map[string][]string)
+	doc["strArr"] = strArr
+	docBytes, err := json.Marshal(doc)
+	if err != nil {
+		b.FailNow()
+	}
+	ops := createRandomOps(100000, 1000000, "remove")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err = applyPatch(string(docBytes), ops)
+		if err != nil {
+			b.FailNow()
 		}
 	}
 }
