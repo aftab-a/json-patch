@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/evanphx/json-patch/skiparrays"
 	"github.com/pkg/errors"
 )
 
@@ -35,9 +36,11 @@ var (
 )
 
 type lazyNode struct {
-	raw   *json.RawMessage
-	doc   partialDoc
-	ary   partialArray
+	raw *json.RawMessage
+	doc partialDoc
+	//ary   partialArray
+	//list  *arraylist.List
+	skarr *skiparrays.SkipArray
 	which int
 }
 
@@ -48,7 +51,10 @@ type Operation map[string]*json.RawMessage
 type Patch []Operation
 
 type partialDoc map[string]*lazyNode
-type partialArray []*lazyNode
+
+//type partialArray []*lazyNode
+
+type partialArray lazyNode
 
 type container interface {
 	get(key string) (*lazyNode, error)
@@ -58,7 +64,7 @@ type container interface {
 }
 
 func newLazyNode(raw *json.RawMessage) *lazyNode {
-	return &lazyNode{raw: raw, doc: nil, ary: nil, which: eRaw}
+	return &lazyNode{raw: raw, doc: nil, which: eRaw}
 }
 
 func (n *lazyNode) MarshalJSON() ([]byte, error) {
@@ -68,7 +74,8 @@ func (n *lazyNode) MarshalJSON() ([]byte, error) {
 	case eDoc:
 		return json.Marshal(n.doc)
 	case eAry:
-		return json.Marshal(n.ary)
+		arr := n.skarr.Values()
+		return json.Marshal(arr)
 	default:
 		return nil, ErrUnknownType
 	}
@@ -78,7 +85,30 @@ func (n *lazyNode) UnmarshalJSON(data []byte) error {
 	dest := make(json.RawMessage, len(data))
 	copy(dest, data)
 	n.raw = &dest
+	//n.raw = data
 	n.which = eRaw
+	return nil
+}
+
+func (p *partialArray) MarshalJSON() ([]byte, error) {
+	arr := p.skarr.Values()
+	return json.Marshal(arr)
+}
+
+func (p *partialArray) UnmarshalJSON(data []byte) error {
+	var ary []*lazyNode
+	err := json.Unmarshal(data, &ary)
+
+	if err != nil {
+		return err
+	}
+
+	ifarr := make([]interface{}, len(ary))
+	for i := range ary {
+		ifarr[i] = ary[i]
+	}
+	p.skarr = skiparrays.New(1024, ifarr...)
+	p.which = eAry
 	return nil
 }
 
@@ -117,21 +147,30 @@ func (n *lazyNode) intoDoc() (*partialDoc, error) {
 
 func (n *lazyNode) intoAry() (*partialArray, error) {
 	if n.which == eAry {
-		return &n.ary, nil
+		p := partialArray(*n)
+		return &p, nil
 	}
 
 	if n.raw == nil {
 		return nil, ErrInvalid
 	}
 
-	err := json.Unmarshal(*n.raw, &n.ary)
+	var ary []*lazyNode
+	err := json.Unmarshal(*n.raw, &ary)
 
 	if err != nil {
 		return nil, err
 	}
 
+	ifarr := make([]interface{}, len(ary))
+	for i := range ary {
+		ifarr[i] = ary[i]
+	}
+	n.skarr = skiparrays.New(1024, ifarr...)
+
 	n.which = eAry
-	return &n.ary, nil
+	p := partialArray(*n)
+	return &p, nil
 }
 
 func (n *lazyNode) compact() []byte {
@@ -170,7 +209,8 @@ func (n *lazyNode) tryAry() bool {
 		return false
 	}
 
-	err := json.Unmarshal(*n.raw, &n.ary)
+	var ary []*lazyNode
+	err := json.Unmarshal(*n.raw, ary)
 
 	if err != nil {
 		return false
@@ -233,12 +273,17 @@ func (n *lazyNode) equal(o *lazyNode) bool {
 		return false
 	}
 
-	if len(n.ary) != len(o.ary) {
+	if n.skarr.Size() != o.skarr.Size() {
 		return false
 	}
 
-	for idx, val := range n.ary {
-		if !val.equal(o.ary[idx]) {
+	itr := n.skarr.Iterator()
+	for itr.Next() {
+		idx := itr.Index()
+		val := itr.Value().(*lazyNode)
+
+		oval, _ := o.skarr.Get(idx)
+		if !val.equal(oval.(*lazyNode)) {
 			return false
 		}
 	}
@@ -409,20 +454,26 @@ func (d *partialDoc) remove(key string) error {
 	return nil
 }
 
+func newPartialArray() *partialArray {
+	parr := &partialArray{}
+	parr.skarr = skiparrays.New(0)
+	return parr
+}
+
 // set should only be used to implement the "replace" operation, so "key" must
 // be an already existing index in "d".
-func (d *partialArray) set(key string, val *lazyNode) error {
+func (d partialArray) set(key string, val *lazyNode) error {
 	idx, err := strconv.Atoi(key)
 	if err != nil {
 		return err
 	}
-	(*d)[idx] = val
+	d.skarr.Set(idx, val)
 	return nil
 }
 
-func (d *partialArray) add(key string, val *lazyNode) error {
+func (d partialArray) add(key string, val *lazyNode) error {
 	if key == "-" {
-		*d = append(*d, val)
+		d.skarr.Add(val)
 		return nil
 	}
 
@@ -431,31 +482,22 @@ func (d *partialArray) add(key string, val *lazyNode) error {
 		return errors.Wrapf(err, "value was not a proper array index: '%s'", key)
 	}
 
-	sz := len(*d) + 1
-
-	ary := make([]*lazyNode, sz)
-
-	cur := *d
-
-	if idx >= len(ary) {
+	if idx > d.skarr.Size() {
 		return errors.Wrapf(ErrInvalidIndex, "Unable to access invalid index: %d", idx)
 	}
 
+	sz := d.skarr.Size() + 1
 	if idx < 0 {
 		if !SupportNegativeIndices {
 			return errors.Wrapf(ErrInvalidIndex, "Unable to access invalid index: %d", idx)
 		}
-		if idx < -len(ary) {
+
+		if idx < -sz {
 			return errors.Wrapf(ErrInvalidIndex, "Unable to access invalid index: %d", idx)
 		}
-		idx += len(ary)
+		idx += sz
 	}
-
-	copy(ary[0:idx], cur[0:idx])
-	ary[idx] = val
-	copy(ary[idx+1:], cur[idx:])
-
-	*d = ary
+	d.skarr.Insert(idx, val)
 	return nil
 }
 
@@ -466,11 +508,12 @@ func (d *partialArray) get(key string) (*lazyNode, error) {
 		return nil, err
 	}
 
-	if idx >= len(*d) {
+	if idx >= d.skarr.Size() {
 		return nil, errors.Wrapf(ErrInvalidIndex, "Unable to access invalid index: %d", idx)
 	}
 
-	return (*d)[idx], nil
+	val, _ := d.skarr.Get(idx)
+	return val.(*lazyNode), nil
 }
 
 func (d *partialArray) remove(key string) error {
@@ -479,9 +522,7 @@ func (d *partialArray) remove(key string) error {
 		return err
 	}
 
-	cur := *d
-
-	if idx >= len(cur) {
+	if idx >= d.skarr.Size() {
 		return errors.Wrapf(ErrInvalidIndex, "Unable to access invalid index: %d", idx)
 	}
 
@@ -489,18 +530,13 @@ func (d *partialArray) remove(key string) error {
 		if !SupportNegativeIndices {
 			return errors.Wrapf(ErrInvalidIndex, "Unable to access invalid index: %d", idx)
 		}
-		if idx < -len(cur) {
+		if idx < -d.skarr.Size() {
 			return errors.Wrapf(ErrInvalidIndex, "Unable to access invalid index: %d", idx)
 		}
-		idx += len(cur)
+		idx += d.skarr.Size()
 	}
 
-	ary := make([]*lazyNode, len(cur)-1)
-
-	copy(ary[0:idx], cur[0:idx])
-	copy(ary[idx:], cur[idx+1:])
-
-	*d = ary
+	d.skarr.Remove(idx)
 	return nil
 
 }
