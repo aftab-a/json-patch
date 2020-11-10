@@ -74,7 +74,7 @@ func (a *SkipArray) findRow(pos int) int {
 }
 
 func (a *SkipArray) updateIndexes(pos int, delta int) {
-	for i := pos + 1; i < len(a.rows)-1; i++ {
+	for i := pos + 1; i <= len(a.rows)-1; i++ {
 		a.rows[i].pos += delta
 	}
 }
